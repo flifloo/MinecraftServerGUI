@@ -1,13 +1,15 @@
 import requests
 import json
+from execptions import InvalidLogin, InvalidURL, InvalidMethod, InvalidServerState
 
 
 class API:
-    def __init__(self, url: str, username: str, password: str, port: int = 5000):
+    def __init__(self, url: str, username: str, password: str):
+        if url[-1] == "/":
+            url = url[:-1]
         self.url = url
         self.username = username
         self.password = password
-        self.port = port
         self.token = None
         self._auth()
 
@@ -15,9 +17,11 @@ class API:
         try:
             resp = requests.post(self.url+"/auth", json={"username": self.username, "password": self.password})
         except (json.JSONDecodeError, KeyError):
-            raise Exception("InvalidLogin")
+            raise InvalidLogin
         except requests.exceptions.ConnectionError:
-            raise Exception("Connection Error")
+            raise ConnectionError
+        except requests.exceptions.MissingSchema:
+            raise InvalidURL
         else:
             self.token = {"Authorization": f"jwt {resp.json()['access_token']}"}
 
@@ -29,12 +33,14 @@ class API:
             resp = requests.get(self.url+args, headers=self.token, json=body)
         elif method == "put":
             resp = requests.put(self.url + args, headers=self.token, json=body)
+        elif method == "post":
+            resp = requests.post(self.url+args, headers=self.token, json=body)
         else:
-            raise Exception("Invalid method")
+            raise InvalidMethod
 
         if resp.status_code == 401:
             self._auth()
-            self._request(args, body, method)
+            return self._request(args, body, method)
         else:
             return resp
 
@@ -47,7 +53,7 @@ class API:
             msg = "Server did not respond"
         else:
             msg = text
-        raise Exception(msg)
+        raise InvalidServerState(msg)
 
     def status(self):
         resp = self._request("/")
@@ -86,7 +92,7 @@ class API:
             return True
 
     def cmd(self, cmd):
-        resp = self._request("/cmd/"+cmd)
+        resp = self._request("/cmd", {"command": cmd}, "post")
         if resp.status_code == 400:
             self.code_400(resp.text)
         else:
